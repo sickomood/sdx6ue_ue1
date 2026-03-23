@@ -205,95 +205,92 @@ Detection and mitigation measures include:
 
 ## 3. Pipeline Hardening
 
-The assignment requires at least three hardening measures to be implemented and explained. The following measures are relevant for this pipeline.
+The assignment requires at least three hardening measures to be implemented and explained.  
+The following measures were implemented in the pipeline.
+
+---
 
 ### Hardening measure 1: Least-privilege permissions
 
 **Implemented**
 
-Each job already defines explicit permissions, for example:
+Each job defines explicit minimal permissions, for example:
 
 ```yaml
 permissions:
   contents: read
 ```
 
-Some jobs additionally use:
+Additional permissions are only granted where required:
 
 ```yaml
 packages: write
 security-events: write
 ```
 
-This is a good hardening step because GitHub Actions otherwise may get broader default permissions than necessary.  
-Reducing permissions lowers the impact if a workflow step or action is compromised.
+This reduces the attack surface. If a job or action is compromised, the attacker only has limited access instead of full repository permissions.
+
+---
 
 ### Hardening measure 2: Fail the scan on serious vulnerabilities
 
-**Recommended improvement**
+**Implemented**
 
-At the moment, the Trivy configuration uses:
+The Trivy configuration was changed from:
 
 ```yaml
 exit-code: '0'
 ```
 
-That means vulnerabilities are reported, but the pipeline does not fail.
-
-A hardened version would be:
+to:
 
 ```yaml
 exit-code: '1'
 severity: HIGH,CRITICAL
 ```
 
-This is important because a security scan that never blocks delivery is mostly informational.  
-If the goal is actual risk reduction, the pipeline should stop when severe issues are detected.
+This ensures that the pipeline fails when high or critical vulnerabilities are detected, instead of only reporting them.  
+This change is important because a security scan without enforcement does not effectively reduce risk.
+
+---
 
 ### Hardening measure 3: Prevent secrets exposure on forked pull requests
 
-**Recommended improvement**
+**Implemented**
 
-Forked pull requests are a common attack path in CI systems.  
-To reduce that risk, secret-using jobs should not run for untrusted forks without approval.
-
-A common control is to guard sensitive jobs, for example:
+Sensitive jobs are restricted to trusted repositories using a condition like:
 
 ```yaml
 if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
 ```
 
-This helps prevent accidental secret exposure to code from external contributors.
+This prevents workflows triggered from untrusted forked repositories from accessing secrets such as `DOCKER_TOKEN`.  
+This is a critical protection against supply chain attacks via malicious pull requests.
+
+---
 
 ### Hardening measure 4: SBOM generation
 
-**Recommended improvement**
+**Implemented**
 
-A Software Bill of Materials (SBOM) improves transparency by documenting which components and dependencies are part of the delivered artifact.
-
-Example approach:
+An SBOM (Software Bill of Materials) step was added:
 
 ```yaml
 - uses: anchore/sbom-action@v0
 ```
 
-This is useful because:
+This improves transparency and allows tracking of dependencies in case of vulnerabilities.  
+It also supports auditing and incident response.
 
-- it helps identify affected components when a vulnerability is disclosed
-- it improves traceability
-- it supports later auditing
+---
 
-### Hardening measure 5: Image signing or provenance
+### Hardening measure 5: Image signing / provenance
 
-**Recommended improvement**
+**Considered improvement**
 
-Another strong improvement would be signing container images or generating provenance attestations, for example with `cosign` or SLSA-related tooling.
+Another strong improvement would be signing container images or generating provenance data using tools such as `cosign` or SLSA.  
+This would allow verification of image integrity and origin.
 
-Benefits:
-
-- consumers can verify image authenticity
-- tampering becomes easier to detect
-- trust in released artifacts increases
 
 ---
 
