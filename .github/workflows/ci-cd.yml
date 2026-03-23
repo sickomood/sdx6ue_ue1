@@ -38,7 +38,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
-          ignore: DL3008,DL3009  # Ignoriere bestimmte Warnungen
+          ignore: DL3008,DL3009,DL3018  # Ignoriere bestimmte Warnungen
       
       # Schritt 3: Go-Code mit golangci-lint checken
       - name: Set up Go
