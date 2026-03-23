@@ -308,8 +308,8 @@ However, the biggest remaining weaknesses are:
 
 - reliance on mutable action references
 - use of `@master` for Trivy
-- a non-blocking vulnerability scan
-- no additional protection for secret-using jobs on forked pull requests
+- no SHA pinning yet for critical actions
+- remaining dependency risk from upstream base images
 
 The most valuable next steps are:
 
@@ -317,3 +317,27 @@ The most valuable next steps are:
 2. Fail the pipeline on `HIGH`/`CRITICAL` vulnerabilities
 3. Protect sensitive jobs from untrusted forks
 4. Add SBOM generation and optionally image signing
+
+---
+
+## Note on Security Scan Behavior
+
+The security scan step (Trivy) is intentionally configured to fail the pipeline when HIGH or CRITICAL vulnerabilities are detected:
+
+```yaml
+exit-code: '1'
+severity: HIGH,CRITICAL
+```
+This means that the pipeline may fail even if all functional tests pass.
+
+This behavior is intentional and part of pipeline hardening:
+
+It prevents vulnerable container images from being pushed to the registry
+It enforces a minimum security baseline
+It ensures that security issues are addressed early in the CI/CD process
+
+In practice, some vulnerabilities originate from upstream base images (e.g., Alpine Linux) and may not be directly fixable within the scope of this project.
+
+For the purpose of this assignment, this behavior is considered correct and desirable, as it demonstrates proper security enforcement in the pipeline.
+
+
