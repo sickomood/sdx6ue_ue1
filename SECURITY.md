@@ -21,6 +21,7 @@ The pipeline depends on the following GitHub Actions:
 - `github/codeql-action/upload-sarif@v3`
 
 ### actions/checkout
+
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v4`)
@@ -28,58 +29,69 @@ The pipeline depends on the following GitHub Actions:
 - **Assessment:** This is widely used and generally trustworthy, but not deterministic while pinned only to a tag.
 
 ### actions/setup-go
+
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v4`)
 - **Risk:** Same general risk as above. The action is official, but mutable tags still introduce supply chain uncertainty.
 
 ### golangci/golangci-lint-action
+
 - **Maintainer:** golangci
 - **Verified organization:** No GitHub-verified org badge in the same sense as GitHub/Docker
 - **Current pinning:** Mutable tag (`@v3`)
 - **Risk:** Third-party action, so the trust boundary is broader. If compromised, it could affect code linting steps or execute malicious code in CI.
 
 ### hadolint/hadolint-action
+
 - **Maintainer:** hadolint
 - **Verified organization:** Not treated as an official GitHub org action
 - **Current pinning:** Mutable tag (`@v3.1.0`)
 - **Risk:** Tag-based pinning is still mutable and therefore weaker than commit pinning.
 
 ### docker/setup-buildx-action
+
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
 - **Risk:** Build infrastructure is security-sensitive. If this action is compromised, the build process can be manipulated.
 
 ### docker/login-action
+
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
 - **Risk:** High impact because this action handles registry authentication. A compromise here could expose credentials or enable malicious pushes.
 
 ### docker/metadata-action
+
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v5`)
 - **Risk:** Lower direct impact than login or build-push, but still part of the release flow.
 
 ### docker/build-push-action
+
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v5`)
 - **Risk:** Very high impact. This action builds and publishes artifacts. If compromised, attackers could inject or publish malicious images.
 
 ### aquasecurity/trivy-action
+
 - **Maintainer:** Aqua Security
 - **Verified organization:** Organization is reputable, but the workflow currently uses `@master`
 - **Current pinning:** Branch reference (`@master`)
 - **Risk:** This is the weakest form of pinning in the workflow. A branch can change at any time. That makes the pipeline non-deterministic and increases supply chain risk significantly.
 
 ### github/codeql-action/upload-sarif
+
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
 - **Risk:** Lower than build/push, but still subject to mutable-tag risk.
+
+---
 
 ### Risk of tag-based pinning
 
@@ -206,91 +218,95 @@ Detection and mitigation measures include:
 ## 3. Pipeline Hardening
 
 The assignment requires at least three hardening measures to be implemented and explained.  
-The following measures were implemented in the pipeline.
-
----
+The following measures are relevant for this pipeline.
 
 ### Hardening measure 1: Least-privilege permissions
 
 **Implemented**
 
-Each job defines explicit minimal permissions, for example:
+Each job already defines explicit permissions, for example:
 
 ```yaml
 permissions:
   contents: read
 ```
 
-Additional permissions are only granted where required:
+Some jobs additionally use:
 
 ```yaml
 packages: write
 security-events: write
 ```
 
-This reduces the attack surface. If a job or action is compromised, the attacker only has limited access instead of full repository permissions.
-
----
+This is a good hardening step because GitHub Actions otherwise may get broader default permissions than necessary.  
+Reducing permissions lowers the impact if a workflow step or action is compromised.
 
 ### Hardening measure 2: Fail the scan on serious vulnerabilities
 
-**Implemented**
+**Recommended improvement**
 
-The Trivy configuration was changed from:
+At the moment, the Trivy configuration uses:
 
 ```yaml
 exit-code: '0'
 ```
 
-to:
+That means vulnerabilities are reported, but the pipeline does not fail.
+
+A hardened version would be:
 
 ```yaml
 exit-code: '1'
 severity: HIGH,CRITICAL
 ```
 
-This ensures that the pipeline fails when high or critical vulnerabilities are detected, instead of only reporting them.  
-This change is important because a security scan without enforcement does not effectively reduce risk.
-
----
+This is important because a security scan that never blocks delivery is mostly informational.  
+If the goal is actual risk reduction, the pipeline should stop when severe issues are detected.
 
 ### Hardening measure 3: Prevent secrets exposure on forked pull requests
 
-**Implemented**
+**Recommended improvement**
 
-Sensitive jobs are restricted to trusted repositories using a condition like:
+Forked pull requests are a common attack path in CI systems.  
+To reduce that risk, secret-using jobs should not run for untrusted forks without approval.
+
+A common control is to guard sensitive jobs, for example:
 
 ```yaml
 if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
 ```
 
-This prevents workflows triggered from untrusted forked repositories from accessing secrets such as `DOCKER_TOKEN`.  
-This is a critical protection against supply chain attacks via malicious pull requests.
-
----
+This helps prevent accidental secret exposure to code from external contributors.
 
 ### Hardening measure 4: SBOM generation
 
-**Implemented**
+**Recommended improvement**
 
-An SBOM (Software Bill of Materials) step was added:
+A Software Bill of Materials (SBOM) improves transparency by documenting which components and dependencies are part of the delivered artifact.
+
+Example approach:
 
 ```yaml
 - uses: anchore/sbom-action@v0
 ```
 
-This improves transparency and allows tracking of dependencies in case of vulnerabilities.  
-It also supports auditing and incident response.
+This is useful because:
 
----
+- it helps identify affected components when a vulnerability is disclosed
+- it improves traceability
+- it supports later auditing
 
-### Hardening measure 5: Image signing / provenance
+### Hardening measure 5: Image signing or provenance
 
-**Considered improvement**
+**Recommended improvement**
 
-Another strong improvement would be signing container images or generating provenance data using tools such as `cosign` or SLSA.  
-This would allow verification of image integrity and origin.
+Another strong improvement would be signing container images or generating provenance attestations, for example with `cosign` or SLSA-related tooling.
 
+Benefits:
+
+- consumers can verify image authenticity
+- tampering becomes easier to detect
+- trust in released artifacts increases
 
 ---
 
@@ -308,8 +324,8 @@ However, the biggest remaining weaknesses are:
 
 - reliance on mutable action references
 - use of `@master` for Trivy
-- no SHA pinning yet for critical actions
-- remaining dependency risk from upstream base images
+- a non-blocking vulnerability scan
+- no additional protection for secret-using jobs on forked pull requests
 
 The most valuable next steps are:
 
@@ -317,27 +333,3 @@ The most valuable next steps are:
 2. Fail the pipeline on `HIGH`/`CRITICAL` vulnerabilities
 3. Protect sensitive jobs from untrusted forks
 4. Add SBOM generation and optionally image signing
-
----
-
-## Note on Security Scan Behavior
-
-The security scan step (Trivy) is intentionally configured to fail the pipeline when HIGH or CRITICAL vulnerabilities are detected:
-
-```yaml
-exit-code: '1'
-severity: HIGH,CRITICAL
-```
-This means that the pipeline may fail even if all functional tests pass.
-
-This behavior is intentional and part of pipeline hardening:
-
-It prevents vulnerable container images from being pushed to the registry
-It enforces a minimum security baseline
-It ensures that security issues are addressed early in the CI/CD process
-
-In practice, some vulnerabilities originate from upstream base images (e.g., Alpine Linux) and may not be directly fixable within the scope of this project.
-
-For the purpose of this assignment, this behavior is considered correct and desirable, as it demonstrates proper security enforcement in the pipeline.
-
-
