@@ -1,122 +1,127 @@
 # Security Analysis – CI/CD Pipeline
 
 This document analyzes the security aspects of the implemented CI/CD pipeline for the recipe API.  
-The analysis focuses on three areas required by the assignment: dependency trust, secrets management, and pipeline hardening.
+The analysis focuses on the three required areas of the assignment: dependency trust, secrets management, and pipeline hardening.
 
 ---
 
 ## 1. Dependency Trust Audit
 
-The pipeline depends on the following GitHub Actions:
+The pipeline currently uses the following GitHub Actions:
 
-- `actions/checkout@v4`
+- `actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd`
 - `actions/setup-go@v4`
 - `golangci/golangci-lint-action@v3`
 - `hadolint/hadolint-action@v3.1.0`
 - `docker/setup-buildx-action@v3`
 - `docker/login-action@v3`
 - `docker/metadata-action@v5`
-- `docker/build-push-action@v5`
+- `docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09`
 - `aquasecurity/trivy-action@master`
 - `github/codeql-action/upload-sarif@v3`
+- `anchore/sbom-action@v0`
 
 ### actions/checkout
 
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
-- **Current pinning:** Mutable tag (`@v4`)
-- **Risk:** A mutable tag can point to different code over time. If the upstream action is compromised or a malicious update is published behind the same tag, the pipeline may execute untrusted code.
-- **Assessment:** This is widely used and generally trustworthy, but not deterministic while pinned only to a tag.
+- **Current pinning:** Full commit SHA
+- **Risk if tag-based:** If a mutable tag such as `@v4` is used, the referenced code may change over time. If the upstream action is compromised, the pipeline may execute untrusted code.
+- **Reason for pinning:** This action is used in every job and therefore has a large blast radius.
 
 ### actions/setup-go
 
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v4`)
-- **Risk:** Same general risk as above. The action is official, but mutable tags still introduce supply chain uncertainty.
+- **Risk:** Even though the action is maintained by GitHub, mutable tags are still less deterministic than commit SHAs.
 
 ### golangci/golangci-lint-action
 
 - **Maintainer:** golangci
-- **Verified organization:** No GitHub-verified org badge in the same sense as GitHub/Docker
+- **Verified organization:** Not an official GitHub platform action
 - **Current pinning:** Mutable tag (`@v3`)
-- **Risk:** Third-party action, so the trust boundary is broader. If compromised, it could affect code linting steps or execute malicious code in CI.
+- **Risk:** Third-party action, therefore broader trust boundary and possible supply chain exposure.
 
 ### hadolint/hadolint-action
 
 - **Maintainer:** hadolint
-- **Verified organization:** Not treated as an official GitHub org action
+- **Verified organization:** Not treated as an official GitHub platform action
 - **Current pinning:** Mutable tag (`@v3.1.0`)
-- **Risk:** Tag-based pinning is still mutable and therefore weaker than commit pinning.
+- **Risk:** Version tags are still mutable and weaker than full SHA pinning.
 
 ### docker/setup-buildx-action
 
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
-- **Risk:** Build infrastructure is security-sensitive. If this action is compromised, the build process can be manipulated.
+- **Risk:** This action affects the build environment and therefore has security relevance.
 
 ### docker/login-action
 
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
-- **Risk:** High impact because this action handles registry authentication. A compromise here could expose credentials or enable malicious pushes.
+- **Risk:** Sensitive because it handles authentication to Docker Hub.
 
 ### docker/metadata-action
 
 - **Maintainer:** Docker
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v5`)
-- **Risk:** Lower direct impact than login or build-push, but still part of the release flow.
+- **Risk:** Lower impact than build or login, but still part of the release chain.
 
 ### docker/build-push-action
 
 - **Maintainer:** Docker
 - **Verified organization:** Yes
-- **Current pinning:** Mutable tag (`@v5`)
-- **Risk:** Very high impact. This action builds and publishes artifacts. If compromised, attackers could inject or publish malicious images.
+- **Current pinning:** Full commit SHA
+- **Risk if tag-based:** A compromised or moved tag could directly affect container image creation and publishing.
+- **Reason for pinning:** This action directly builds and publishes images and therefore has very high impact.
 
 ### aquasecurity/trivy-action
 
 - **Maintainer:** Aqua Security
-- **Verified organization:** Organization is reputable, but the workflow currently uses `@master`
+- **Verified organization:** Reputable vendor
 - **Current pinning:** Branch reference (`@master`)
-- **Risk:** This is the weakest form of pinning in the workflow. A branch can change at any time. That makes the pipeline non-deterministic and increases supply chain risk significantly.
+- **Risk:** This is the weakest form of pinning. A branch can change at any time, which makes the pipeline less deterministic.
 
 ### github/codeql-action/upload-sarif
 
 - **Maintainer:** GitHub
 - **Verified organization:** Yes
 - **Current pinning:** Mutable tag (`@v3`)
-- **Risk:** Lower than build/push, but still subject to mutable-tag risk.
+- **Risk:** Lower impact than build/push, but still mutable.
+
+### anchore/sbom-action
+
+- **Maintainer:** Anchore
+- **Verified organization:** Reputable vendor
+- **Current pinning:** Mutable tag (`@v0`)
+- **Risk:** Still mutable and therefore less deterministic than SHA pinning.
 
 ---
 
 ### Risk of tag-based pinning
 
-Using tags such as `@v3`, `@v4`, or `@master` is convenient, but it means the exact code being executed is not fixed forever.  
+Using tags such as `@v3`, `@v4`, or `@master` is convenient, but it means the exact code being executed is not permanently fixed.  
 If an upstream maintainer account is compromised, or if a tag is moved or re-released, the pipeline may execute different code without any change in this repository.
 
-This is not just theoretical. Supply chain incidents around GitHub Actions have shown that CI pipelines can become an attack path if workflows trust mutable references too much. The broader lesson from incidents such as the `tj-actions` case is simple: **workflows should prefer immutable references for critical dependencies**.
+This is a known supply chain problem. The general lesson from GitHub Actions supply chain incidents is that **critical dependencies should be pinned to immutable references whenever possible**.
 
 ### Implemented improvement: SHA pinning
 
-At least two important actions should be changed from mutable tags to commit SHAs.
+Two critical actions were pinned to immutable commit SHAs:
 
-Example:
-
-```yaml
-- uses: actions/checkout@<full-commit-sha>
-- uses: docker/build-push-action@<full-commit-sha>
-```
+- `actions/checkout`
+- `docker/build-push-action`
 
 These two were selected because:
 
-- `actions/checkout` is executed in almost every job and therefore has a large blast radius.
-- `docker/build-push-action` directly affects produced and published container images, so compromise here would be especially severe.
+- `actions/checkout` is used in every job and has a large attack surface
+- `docker/build-push-action` directly builds and publishes container images and therefore has especially high impact
 
-Pinning to a commit SHA improves:
+Pinning to a full commit SHA improves:
 
 - reproducibility
 - determinism
@@ -129,7 +134,7 @@ Pinning to a commit SHA improves:
 
 ### Which secrets does the pipeline need?
 
-The current pipeline needs these repository secrets:
+The pipeline uses the following repository secrets:
 
 - `DOCKER_USERNAME`
 - `DOCKER_TOKEN`
@@ -138,62 +143,52 @@ The current pipeline needs these repository secrets:
 
 **DOCKER_USERNAME**
 
-This is not highly sensitive on its own, but it is still part of the authentication flow.
-
-- Minimum requirement: only the account name needed for Docker Hub login
+- only the account name needed for Docker Hub login
 
 **DOCKER_TOKEN**
 
-This is the critical secret.
-
-- Minimum required permissions:
-  - push access only to the required Docker Hub repository
-  - no account-wide admin permissions
-  - no delete permissions if they are not needed
-  - ideally scoped as narrowly as Docker Hub allows
+- push access only to the required Docker Hub repository
+- no account-wide admin rights
+- no delete permissions if not required
+- scope should be as narrow as Docker Hub allows
 
 ### Blast radius if DOCKER_TOKEN is leaked
 
 If `DOCKER_TOKEN` is leaked in CI logs or through a malicious action, an attacker could:
 
-- push malicious images to the Docker repository
-- overwrite trusted tags such as `latest` or branch tags
-- publish a backdoored image that downstream users would trust
-- perform a supply chain attack through the container registry
+- push malicious images to the Docker Hub repository
+- overwrite trusted tags such as `latest` or branch-related tags
+- publish a backdoored image that downstream users may trust
+- abuse the container registry as part of a supply chain attack
 
-That makes the blast radius potentially serious, because the registry is part of the software distribution path.
+Because the registry is part of the software delivery path, the impact of such a leak is potentially serious.
 
 ### How to limit the blast radius
 
 The impact can be reduced by:
 
 - using a token with the smallest possible scope
-- using a dedicated token only for this repository
+- using a dedicated token only for this repository or project
 - rotating the token regularly
-- never echoing secrets in logs
+- never printing secrets in logs
 - limiting which jobs actually receive registry credentials
-- only using the secret in the final push-related jobs
+- only using the secret in jobs that really need it
 
 ### Why use `${{ secrets.GITHUB_TOKEN }}` instead of a PAT?
 
-`GITHUB_TOKEN` is safer than a Personal Access Token (PAT) in most CI cases because:
+`GITHUB_TOKEN` is safer than a Personal Access Token (PAT) in most CI use cases because:
 
 - it is automatically generated by GitHub for each workflow run
 - it is short-lived
 - it is scoped to the current repository and workflow permissions
-- it supports the least-privilege model more naturally
+- it fits the least-privilege model better
 
 A PAT is riskier because:
 
 - it is long-lived
 - it is often over-scoped
 - it may grant access across multiple repositories or broader account resources
-- if leaked, it is usually more damaging than `GITHUB_TOKEN`
-
-So the security difference is mainly:
-
-- `GITHUB_TOKEN` is ephemeral and repo-scoped
-- a PAT is often broader and longer-lived
+- if leaked, the damage is usually greater than with `GITHUB_TOKEN`
 
 ### How to detect secret exfiltration via a malicious PR
 
@@ -203,133 +198,123 @@ A malicious pull request could attempt to exfiltrate secrets by:
 - sending them to an external server
 - hiding exfiltration in shell commands or third-party actions
 
-Detection and mitigation measures include:
+Mitigations and detection measures include:
 
-- do not expose secrets to workflows triggered from untrusted forks
-- review changes to workflow files carefully
-- monitor workflow logs for suspicious outbound requests, `curl`/`wget` usage, or encoded output
-- restrict permissions at job level
-- avoid using powerful secrets in PR-triggered workflows unless absolutely necessary
-- require manual review for changes in `.github/workflows/`
-- use branch protection and code review for workflow modifications
+- not exposing secrets to untrusted forked pull requests
+- reviewing changes to workflow files carefully
+- monitoring workflow logs for suspicious outbound requests or encoded output
+- restricting permissions at job level
+- avoiding powerful secrets in untrusted PR-triggered workflows
+- requiring review for changes in `.github/workflows/`
+- using branch protection and code review
 
 ---
 
 ## 3. Pipeline Hardening
 
 The assignment requires at least three hardening measures to be implemented and explained.  
-The following measures are relevant for this pipeline.
+The following measures were implemented in the pipeline.
 
 ### Hardening measure 1: Least-privilege permissions
 
 **Implemented**
 
-Each job already defines explicit permissions, for example:
+Each job defines explicit minimal permissions, for example:
 
 ```yaml
 permissions:
   contents: read
 ```
 
-Some jobs additionally use:
+Additional permissions are only granted where necessary, such as:
 
 ```yaml
 packages: write
 security-events: write
 ```
 
-This is a good hardening step because GitHub Actions otherwise may get broader default permissions than necessary.  
-Reducing permissions lowers the impact if a workflow step or action is compromised.
+This reduces the attack surface. If a job or action is compromised, the attacker does not automatically receive broad repository permissions.
 
-### Hardening measure 2: Fail the scan on serious vulnerabilities
+### Hardening measure 2: Prevent secret exposure on untrusted fork contexts
 
-**Recommended improvement**
+**Implemented**
 
-At the moment, the Trivy configuration uses:
+Secret-using steps are guarded so they do not run in untrusted pull request contexts.  
+For example, Docker Hub login is protected with a condition such as:
+
+```yaml
+if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+```
+
+This reduces the risk of secret exposure through malicious external pull requests.
+
+### Hardening measure 3: SBOM generation
+
+**Implemented**
+
+An SBOM (Software Bill of Materials) step was added using:
+
+```yaml
+- uses: anchore/sbom-action@v0
+```
+
+This improves transparency, helps track dependencies, and supports later auditing and incident response.
+
+### Hardening measure 4: Security scan integrated into CI
+
+**Implemented**
+
+The pipeline scans the built image with Trivy and uploads the results in SARIF format to GitHub Security.
+
+For this assignment, the scan is configured as non-blocking:
 
 ```yaml
 exit-code: '0'
 ```
 
-That means vulnerabilities are reported, but the pipeline does not fail.
+This keeps the full pipeline operational for Part A while still surfacing vulnerabilities in CI.
 
-A hardened version would be:
+A stricter production-oriented configuration would be:
 
 ```yaml
 exit-code: '1'
 severity: HIGH,CRITICAL
 ```
 
-This is important because a security scan that never blocks delivery is mostly informational.  
-If the goal is actual risk reduction, the pipeline should stop when severe issues are detected.
+That stricter version would block delivery when serious vulnerabilities are detected. In this project it was documented, but not kept as the default because it prevented the full pipeline from completing due to vulnerabilities inherited from upstream base images.
 
-### Hardening measure 3: Prevent secrets exposure on forked pull requests
+### Hardening measure 5: Image signing / provenance
 
-**Recommended improvement**
+**Considered improvement**
 
-Forked pull requests are a common attack path in CI systems.  
-To reduce that risk, secret-using jobs should not run for untrusted forks without approval.
-
-A common control is to guard sensitive jobs, for example:
-
-```yaml
-if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-```
-
-This helps prevent accidental secret exposure to code from external contributors.
-
-### Hardening measure 4: SBOM generation
-
-**Recommended improvement**
-
-A Software Bill of Materials (SBOM) improves transparency by documenting which components and dependencies are part of the delivered artifact.
-
-Example approach:
-
-```yaml
-- uses: anchore/sbom-action@v0
-```
-
-This is useful because:
-
-- it helps identify affected components when a vulnerability is disclosed
-- it improves traceability
-- it supports later auditing
-
-### Hardening measure 5: Image signing or provenance
-
-**Recommended improvement**
-
-Another strong improvement would be signing container images or generating provenance attestations, for example with `cosign` or SLSA-related tooling.
-
-Benefits:
-
-- consumers can verify image authenticity
-- tampering becomes easier to detect
-- trust in released artifacts increases
+Another strong improvement would be signing container images or generating provenance data using tools such as `cosign` or SLSA.  
+This would improve artifact authenticity and traceability.
 
 ---
 
 ## Conclusion
 
-The implemented pipeline already includes important security foundations:
+The implemented pipeline includes the required CI/CD stages and several concrete security improvements:
 
-- separated jobs
-- explicit permissions
-- a vulnerability scan
+- linting for Dockerfile and Go code
+- multi-architecture image builds
+- image scanning with Trivy
+- integration testing against a running database
 - controlled image publishing
-- integration testing before push
+- least-privilege permissions
+- SHA pinning for two critical actions
+- restricted secret usage in trusted contexts
+- SBOM generation
 
-However, the biggest remaining weaknesses are:
+The main remaining weaknesses are:
 
-- reliance on mutable action references
-- use of `@master` for Trivy
-- a non-blocking vulnerability scan
-- no additional protection for secret-using jobs on forked pull requests
+- several non-critical actions still use mutable tags
+- `aquasecurity/trivy-action` is still referenced via `@master`
+- the current vulnerability scan is non-blocking to keep the full pipeline operational
 
-The most valuable next steps are:
+The most valuable future improvements would be:
 
-1. Pin critical actions to full commit SHAs
-2. Fail the pipeline on `HIGH`/`CRITICAL` vulnerabilities
-3. Protect sensitive jobs from untrusted forks
-4. Add SBOM generation and optionally image signing
+1. Pin more actions to commit SHAs
+2. Pin Trivy to a fixed version or SHA instead of `@master`
+3. Enable blocking vulnerability thresholds for production pipelines
+4. Add image signing or provenance attestation
