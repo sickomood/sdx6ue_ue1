@@ -1,88 +1,70 @@
-# ============================================================
-# PART A: Pipeline Implementation
-# ============================================================
-
 name: CI/CD Pipeline
 
-# 🎯 WANN soll die Pipeline laufen?
 on:
   push:
     branches:
-      - main                    # Nur auf main Branch
-      - develop                 # Optional: auch auf develop
+      - main
+      - develop
   pull_request:
     branches:
       - main
 
-# Umgebungsvariablen (global für alle Jobs)
 env:
-  REGISTRY: docker.io           # Docker Hub (oder ghcr.io für GitHub)
-  IMAGE_NAME: sickomxxd/sdx6ue_ue1  # sickomood/sdx6ue_ue1
+  REGISTRY: docker.io
+  IMAGE_NAME: sickomxxd/sdx6ue_ue1
 
 jobs:
-  # ============================================================
-  # JOB 1: LINT (1 Punkt)
-  # ============================================================
   lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    
+
     steps:
-      # Schritt 1: Code runterladen
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      # Schritt 2: Dockerfile mit Hadolint checken
+
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
-          ignore: DL3008,DL3009,DL3018  # Ignoriere bestimmte Warnungen
-      
-      # Schritt 3: Go-Code mit golangci-lint checken
+          ignore: DL3008,DL3009,DL3018
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
-      
+
       - name: Lint Go code
         uses: golangci/golangci-lint-action@v3
         with:
           version: latest
           working-directory: ./src
 
-  # ============================================================
-  # JOB 2: BUILD (2 Punkte)
-  # ============================================================
   build:
     runs-on: ubuntu-latest
-    needs: lint               # Erst nach lint!
+    needs: lint
     permissions:
       contents: read
       packages: write
-    
+
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
       image-digest: ${{ steps.build.outputs.digest }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      # Schritt 1: Docker Buildx Setup (für Multi-Arch)
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
-      # Schritt 2: Login zu Docker Registry
+
       - name: Log in to Docker Hub
         if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
-      
-      # Schritt 3: Image Metadata (Tags, Labels)
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -92,61 +74,59 @@ jobs:
             type=sha,prefix={{branch}}-
             type=ref,event=branch
             type=semver,pattern={{version}}
-      
-      # Schritt 4: Multi-Arch Build (amd64 + arm64)
+
       - name: Build and push (amd64 + arm64)
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64    # ← Multi-Platform!
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ============================================================
-  # JOB 3: SECURITY SCAN (2 Punkte)
-  # ============================================================
   security-scan:
     runs-on: ubuntu-latest
     needs: build
     permissions:
       contents: read
       security-events: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      # Schritt 1: Trivy installieren und ausführen
+
+      - name: Build local image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: recipe-app:scan
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: 'fs'           # Filesystem scan
-          scan-ref: '.'
-          format: 'sarif'           # Format für GitHub Security
-          output: 'trivy-results.sarif'
-          exit-code: '0'            # WARNUNG: Exit-Code 0 = keine Fehler
-      
-      # Schritt 2: Ergebnisse zu GitHub Security hochladen
+          image-ref: recipe-app:scan
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: '0'
+
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: trivy-results.sarif
 
-  # ============================================================
-  # JOB 4: INTEGRATION TEST (2 Punkte)
-  # ============================================================
   integration-test:
     runs-on: ubuntu-latest
     needs: build
     permissions:
       contents: read
-    
+
     services:
       postgres:
         image: postgres:16.8-alpine3.21
@@ -155,74 +135,70 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: recipes
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d recipes"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
         ports:
           - 5432:5432
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      # Schritt 1: Go Setup
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
-      
-      # Schritt 2: Dependencies herunterladen
+
       - name: Download dependencies
         run: |
           cd src
           go mod download
-      
-      # Schritt 3: Docker Compose starten
-      - name: Start application with docker-compose
+
+      - name: Start application
         run: |
-          docker-compose up -d
-          sleep 10  # Warte bis App bereit ist
-      
-      # Schritt 4: Health Check
+          cd src
+          DB_USER=postgres \
+          DB_HOST=127.0.0.1 \
+          DB_PASSWORD=postgres \
+          DB_NAME=recipes \
+          DB_PORT=5432 \
+          go run main.go > ../app.log 2>&1 &
+          echo $! > ../app.pid
+          sleep 10
+
       - name: Health check
         run: |
           max_attempts=30
           attempt=0
-          until curl -s http://localhost:8080/health || [ $attempt -eq $max_attempts ]; do
+          until curl -fsS http://localhost:8080/health > /dev/null || [ $attempt -eq $max_attempts ]; do
             echo "Waiting for app to be ready..."
             attempt=$((attempt+1))
             sleep 1
           done
+
           if [ $attempt -eq $max_attempts ]; then
             echo "App failed to start"
-            docker-compose logs
+            cat app.log
             exit 1
           fi
-      
-      # Schritt 5: API Tests
+
       - name: Run API tests
         run: |
-          # Test 1: Health Endpoint
-          curl -v http://localhost:8080/health || exit 1
-          
-          # Test 2: Create Recipe
-          curl -X POST http://localhost:8080/recipes \
-            -H "Content-Type: application/json" \
-            -d '{"name":"Spaghetti","ingredients":["pasta","tomato"]}' \
-            || exit 1
-          
-          # Test 3: Get Recipes
-          curl -v http://localhost:8080/recipes || exit 1
-      
-      # Schritt 6: Cleanup
-      - name: Stop containers
-        if: always()
-        run: docker-compose down
+          curl -fsS http://localhost:8080/health
 
-  # ============================================================
-  # JOB 5: PUSH (1 Punkt)
-  # ============================================================
+          curl -fsS -X POST http://localhost:8080/recipes \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Spaghetti","ingredients":["pasta","tomato"]}'
+
+          curl -fsS http://localhost:8080/recipes
+
+      - name: Stop application
+        if: always()
+        run: |
+          test -f app.pid && kill "$(cat app.pid)" || true
+
   push:
     runs-on: ubuntu-latest
     needs: [build, security-scan, integration-test]
@@ -230,21 +206,20 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
-      
-      # Schritt 1: Tag mit Commit SHA
+
       - name: Extract metadata with SHA tag
         id: meta
         uses: docker/metadata-action@v5
@@ -254,8 +229,7 @@ jobs:
             type=sha,prefix={{branch}}-
             type=ref,event=branch
             type=raw,value=latest
-      
-      # Schritt 2: Push zum Registry
+
       - name: Push image to registry
         uses: docker/build-push-action@v5
         with:
