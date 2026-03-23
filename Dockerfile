@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/recipe 
 FROM alpine:3.21.3
 
 RUN addgroup -S app && adduser -S -G app app \
-    && apk add --no-cache ca-certificates=20240705-r0 wget=1.24.5-r0
+    && apk add --no-cache ca-certificates wget
 
 WORKDIR /app
 
