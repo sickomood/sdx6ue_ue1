@@ -164,7 +164,7 @@ jobs:
           DB_PASSWORD=postgres \
           DB_NAME=recipes \
           DB_PORT=5432 \
-          go run main.go > ../app.log 2>&1 &
+          go run main.go serve > ../app.log 2>&1 &
           echo $! > ../app.pid
           sleep 10
 
