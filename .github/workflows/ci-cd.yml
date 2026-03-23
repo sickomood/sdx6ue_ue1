@@ -17,7 +17,7 @@ on:
 # Umgebungsvariablen (global für alle Jobs)
 env:
   REGISTRY: docker.io           # Docker Hub (oder ghcr.io für GitHub)
-  IMAGE_NAME: sickomoxd/sdx6ue_ue1  # sickomood/sdx6ue_ue1
+  IMAGE_NAME: sickomxxd/sdx6ue_ue1  # sickomood/sdx6ue_ue1
 
 jobs:
   # ============================================================
