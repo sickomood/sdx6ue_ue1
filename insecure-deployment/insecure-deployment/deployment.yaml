@@ -1,0 +1,46 @@
+#
+# EXERCISE: This set of K8s manifests contains multiple security issues.
+# Find all vulnerabilities (there are at least 6).
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: recipe
+  name: recipe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recipe
+  template:
+    metadata:
+      labels:
+        app: recipe
+    spec:
+      containers:
+      - image: vstadtmueller/recipe-api:latest
+        name: recipe-api
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        ports:
+          - containerPort: 8080
+            hostPort: 8080
+        env:
+          - name: DB_HOST
+            value: "db-service"
+          - name: DB_NAME
+            value: "postgres"
+          - name: DB_USER
+            value: "admin"
+          - name: DB_PASSWORD
+            value: "P@ssw0rd123!"
+        volumeMounts:
+          - name: host-fs
+            mountPath: /host
+      volumes:
+        - name: host-fs
+          hostPath:
+            path: /
+            type: Directory
