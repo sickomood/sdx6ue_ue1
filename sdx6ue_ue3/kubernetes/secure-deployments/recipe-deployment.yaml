@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recipe-api
+  namespace: default
+  labels:
+    app: recipe-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recipe-api
+  template:
+    metadata:
+      labels:
+        app: recipe-api
+    spec:
+      containers:
+      - name: recipe-api
+        image: vstadtmueller/recipe-api:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DB_HOST
+          value: db-service
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_DB
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_PASSWORD
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]

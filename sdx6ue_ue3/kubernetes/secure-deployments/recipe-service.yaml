@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: recipe-service
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: recipe-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP

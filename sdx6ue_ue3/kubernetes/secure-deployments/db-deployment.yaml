@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recipe-db
+  namespace: default
+  labels:
+    app: recipe-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recipe-db
+  template:
+    metadata:
+      labels:
+        app: recipe-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16.8-alpine3.21
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: recipe-db-secret
+              key: POSTGRES_DB
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
